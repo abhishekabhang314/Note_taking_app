@@ -1,67 +1,82 @@
+import streamlit as st
 import bcrypt
 from db import users, notes
 from bson.objectid import ObjectId
 
+
+st.set_page_config(
+    page_title="Notes App",
+    page_icon="📝",
+)
+
+# --- Session State ---
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = None
+
+# --- Registration ---
 def register():
-    email = input("Enter email: ")
-    password = input("Enter password: ").encode('utf-8')
-    if users.find_one({'email': email}):
-        print("User already exists.")
-        return
-    hashed = bcrypt.hashpw(password, bcrypt.gensalt())
-    users.insert_one({'email': email, 'password': hashed})
-    print("Registration successful!")
+    st.subheader("Register")
+    email = st.text_input("Email", key="reg_email")
+    password = st.text_input("Password", type="password", key="reg_password")
+    if st.button("Register"):
+        if users.find_one({'email': email}):
+            st.error("User already exists.")
+        else:
+            hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+            users.insert_one({'email': email, 'password': hashed})
+            st.success("Registered successfully! Please log in.")
 
+# --- Login ---
 def login():
-    email = input("Email: ")
-    password = input("Password: ").encode('utf-8')
-    user = users.find_one({'email': email})
-    if user and bcrypt.checkpw(password, user['password']):
-        print("Login successful!")
-        return str(user['_id'])
-    else:
-        print("Invalid credentials")
-        return None
+    st.subheader("Login")
+    email = st.text_input("Email", key="log_email")
+    password = st.text_input("Password", type="password", key="log_password")
+    if st.button("Login"):
+        user = users.find_one({'email': email})
+        if user and bcrypt.checkpw(password.encode('utf-8'), user['password']):
+            st.session_state.user_id = str(user['_id'])
+            st.success("Logged in!")
+        else:
+            st.error("Invalid credentials")
 
-def add_note(user_id):
-    title = input("Note Title: ")
-    content = input("Note Content: ")
-    notes.insert_one({'title': title, 'content': content, 'user_id': user_id})
-    print("Note added!")
+# --- Add Note ---
+def add_note():
+    st.subheader("Add Note")
+    title = st.text_input("Title")
+    content = st.text_area("Content")
+    if st.button("Save Note"):
+        notes.insert_one({'title': title, 'content': content, 'user_id': st.session_state.user_id})
+        st.success("Note added!")
 
-def view_notes(user_id):
-    print("\nYour Notes:")
-    for note in notes.find({'user_id': user_id}):
-        print(f"- {note['_id']}: {note['title']}")
+# --- View Notes ---
+def view_notes():
+    st.subheader("Your Notes")
+    user_notes = notes.find({'user_id': st.session_state.user_id})
+    for note in user_notes:
+        with st.expander(note['title']):
+            st.write(note['content'])
+            if st.button("Delete", key=str(note['_id'])):
+                notes.delete_one({'_id': ObjectId(note['_id'])})
+                st.success("Note deleted.")
+                st.experimental_rerun()
 
-def delete_note(user_id):
-    view_notes(user_id)
-    note_id = input("Enter note ID to delete: ")
-    result = notes.delete_one({'_id': ObjectId(note_id), 'user_id': user_id})
-    print("Deleted!" if result.deleted_count else "Note not found.")
+# --- Logout ---
+def logout():
+    st.session_state.user_id = None
+    st.success("Logged out!")
 
-def main():
-    while True:
-        print("\n1. Register\n2. Login\n3. Exit")
-        choice = input("Choose: ")
-        if choice == "1":
-            register()
-        elif choice == "2":
-            user_id = login()
-            if user_id:
-                while True:
-                    print("\n1. Add Note\n2. View Notes\n3. Delete Note\n4. Logout")
-                    sub = input("Choose: ")
-                    if sub == "1":
-                        add_note(user_id)
-                    elif sub == "2":
-                        view_notes(user_id)
-                    elif sub == "3":
-                        delete_note(user_id)
-                    elif sub == "4":
-                        break
-        elif choice == "3":
-            break
+# --- Main App ---
+st.title("📝 Personal Notes App")
 
-if __name__ == "__main__":
-    main()
+if st.session_state.user_id:
+    st.sidebar.success("Logged in")
+    if st.sidebar.button("Logout"):
+        logout()
+    add_note()
+    view_notes()
+else:
+    tab1, tab2 = st.tabs(["Login", "Register"])
+    with tab1:
+        login()
+    with tab2:
+        register()
